@@ -1,4 +1,5 @@
 import os
+import toml
 import datetime
 import uuid
 import subprocess
@@ -9,7 +10,7 @@ from flask import (
     send_from_directory,
     Response,
     redirect,
-    url_for
+    url_for,
 )
 from werkzeug.utils import secure_filename
 import shlex
@@ -18,14 +19,19 @@ import shutil
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1000 * 1024 * 1024  # 1000 MB
 
-# Configuration constants
-BASE_DIR = "/home/gstrein/transcriptions"
-WHISPER_BINARY = "/home/gstrein/Documents/repos/whisper.cpp-1.5.1/build/bin/main"
-WHISPER_MODEL = "/home/gstrein/models/whisper/ggml-large-v1.bin"
-FFMPEG_BINARY = "ffmpeg"
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.toml")
+BASE_DIR = None
+WHISPER_BINARY = None
+WHISPER_MODEL = None
+FFMPEG_BINARY = None
 
-if not os.path.exists(BASE_DIR):
-    os.makedirs(BASE_DIR)
+if os.path.exists(CONFIG_PATH):
+    with open(CONFIG_PATH, "r") as f:
+        config = toml.load(f)
+        BASE_DIR = config.get("base_dir", None)
+        WHISPER_BINARY = config.get("whisper_binary", None)
+        WHISPER_MODEL = config.get("whisper_model", None)
+        FFMPEG_BINARY = config.get("ffmpeg_binary", None)
 
 TEMPLATE = r"""
 <!DOCTYPE html>
@@ -124,6 +130,7 @@ h2 {
 <div class="container">
 
     <a class="archive-link" href="/archive">View Archive</a>
+    <a class="archive-link" href="/settings">Settings</a>
 
     <div class="form-section">
         <h2>Upload Audio</h2>
@@ -463,6 +470,31 @@ function escapeHTML(str) {
 </html>
 """
 
+SETTINGS_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Settings</title>
+</head>
+<body>
+<h1>Settings</h1>
+<form method="POST">
+    <label>Base Directory:</label><br>
+    <input type="text" name="base_dir" value="{{ config.get('base_dir', '') }}"><br><br>
+    <label>Whisper Binary:</label><br>
+    <input type="text" name="whisper_binary" value="{{ config.get('whisper_binary', '') }}"><br><br>
+    <label>Whisper Model:</label><br>
+    <input type="text" name="whisper_model" value="{{ config.get('whisper_model', '') }}"><br><br>
+    <label>FFmpeg Binary:</label><br>
+    <input type="text" name="ffmpeg_binary" value="{{ config.get('ffmpeg_binary', '') }}"><br><br>
+    <button type="submit">Save</button>
+</form>
+<a href="/">Back to Home</a>
+</body>
+</html>
+"""
+
+
 @app.route("/", methods=["GET"])
 def index():
     return render_template_string(TEMPLATE, year=datetime.datetime.now().year)
@@ -477,7 +509,9 @@ def upload():
         return "No file selected", 400
 
     filename = secure_filename(f.filename)
-    task_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_") + str(uuid.uuid4())
+    task_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_") + str(
+        uuid.uuid4()
+    )
     task_dir = os.path.join(BASE_DIR, task_id)
     os.makedirs(task_dir, exist_ok=True)
 
@@ -587,13 +621,66 @@ def archive():
         ARCHIVE_TEMPLATE, year=datetime.datetime.now().year, tasks=tasks
     )
 
+
 @app.route("/delete/<task_id>", methods=["POST"])
 def delete_task(task_id):
     task_dir = os.path.join(BASE_DIR, task_id)
     if os.path.exists(task_dir) and os.path.isdir(task_dir):
         shutil.rmtree(task_dir)
-    return redirect(url_for('archive'))
+    return redirect(url_for("archive"))
+
+
+def load_config():
+    global BASE_DIR, WHISPER_BINARY, WHISPER_MODEL, FFMPEG_BINARY
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "r") as f:
+            config = toml.load(f)
+            BASE_DIR = config.get("base_dir")
+            WHISPER_BINARY = config.get("whisper_binary")
+            WHISPER_MODEL = config.get("whisper_model")
+            FFMPEG_BINARY = config.get("ffmpeg_binary")
+    else:
+        BASE_DIR = None
+        WHISPER_BINARY = None
+        WHISPER_MODEL = None
+        FFMPEG_BINARY = None
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    config_path = os.path.join(os.path.dirname(__file__), "config.toml")
+
+    if request.method == "POST":
+        # Save settings to the TOML file
+        config = {
+            "base_dir": request.form["base_dir"],
+            "whisper_binary": request.form["whisper_binary"],
+            "whisper_model": request.form["whisper_model"],
+            "ffmpeg_binary": request.form["ffmpeg_binary"],
+        }
+        with open(config_path, "w") as f:
+            import toml
+
+            toml.dump(config, f)
+
+        # Reload the updated configuration into global variables
+        load_config()
+
+        return redirect(url_for("settings"))
+
+    # Read settings from the TOML file
+    config = {}
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            import toml
+
+            config = toml.load(f)
+
+    return render_template_string(
+        SETTINGS_TEMPLATE,
+        config=config,
+    )
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)
-
