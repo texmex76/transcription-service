@@ -1,0 +1,137 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #fafafa;
+    color: #333;
+    margin: 0;
+    padding: 0;
+}
+
+header, footer {
+    background: #FF9800;
+    color: #fff;
+    padding: 20px;
+    text-align: center;
+}
+
+header nav a {
+    margin: 0 10px;
+    color: #fff;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+header nav a:hover {
+    text-decoration: underline;
+}
+
+main {
+    padding: 20px;
+}
+
+footer {
+    margin-top: 20px;
+    font-size: 14px;
+}
+
+.form-section, .record-section {
+    background: #fff;
+    border: 1px solid #ddd;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+}
+
+.button {
+    background: #FF9800;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.button:hover {
+    background: #E68A00;
+}
+
+.record-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: center;
+}
+
+.download-links {
+    margin-top: 20px;
+}
+
+.download-links a {
+    margin-right: 20px;
+    text-decoration: none;
+    color: #FF9800;
+    font-weight: bold;
+}
+
+.container {
+    display: flex;
+    width: 100%;
+    min-height: 90vh;
+    box-sizing: border-box;
+}
+
+.left-panel {
+    width: 500px;
+    background: #fafafa;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.right-panel-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.task-list {
+    background: #fff;
+    border: 1px solid #ddd;
+    padding: 20px;
+    border-radius: 5px;
+}
+
+.task {
+    border-bottom: 1px solid #ddd;
+    padding: 10px 0;
+}
+
+.task:last-child {
+    border-bottom: none;
+}
+
+.task h2 {
+    margin: 0 0 10px 0;
+    color: #FF9800;
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+#file-content {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 10px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow: auto;
+    flex: 1;
+    font-family: monospace;
+}
+

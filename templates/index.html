@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="form-section">
+    <h2>Upload Audio</h2>
+    <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="uploadForm">
+        <p>Select an audio file to transcribe (WAV recommended, otherwise it will be converted):</p>
+        <input type="file" name="audio_file" accept="audio/*" required />
+        <br><br>
+        <button class="button" type="submit">Upload and Transcribe</button>
+    </form>
+</div>
+
+<div class="record-section">
+    <h2>Record Audio</h2>
+    <p>Record audio using your microphone and then submit for transcription:</p>
+    <div class="record-controls">
+        <button class="button" id="recordBtn">Start Recording</button>
+        <button class="button" id="stopBtn" disabled>Stop Recording</button>
+        <span>Recording Time: <span id="recordingTime">0</span> s</span>
+    </div>
+    <audio id="playback" controls style="display:none; margin-bottom:10px;"></audio>
+    <button class="button" id="submitRecordingBtn" style="display:none;">Submit Recording for Transcription</button>
+</div>
+
+{% if task_id %}
+    <h2>Transcription in Progress</h2>
+    <div id="stdoutput" style="background: #f0f0f0; border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">
+        Waiting for output...
+    </div>
+    <script>
+    // SSE for progress
+    var eventSource = new EventSource("/progress/{{task_id}}");
+    var stdoutput = document.getElementById("stdoutput");
+
+    eventSource.onmessage = function(e) {
+        // When done, redirect
+        if (e.data.startsWith("DONE")) {
+            eventSource.close();
+            window.location.href = "/result/{{task_id}}";
+        } else {
+            stdoutput.textContent += "\n" + e.data;
+            stdoutput.scrollTop = stdoutput.scrollHeight;
+        }
+    };
+    </script>
+{% endif %}
+
+{% if result_task_id %}
+    <h2>Transcription Completed</h2>
+    <div class="download-links">
+        <a href="{{ url_for('download_file', task_id=result_task_id, filename='output.txt') }}" target="_blank">Download TXT</a>
+        <a href="{{ url_for('download_file', task_id=result_task_id, filename='output.srt') }}" target="_blank">Download SRT</a>
+        <a href="{{ url_for('download_file', task_id=result_task_id, filename='stdout.log') }}" target="_blank">View Stdout</a>
+    </div>
+{% endif %}
+
+<script>
+// Microphone recording logic
+let mediaRecorder;
+let recordedChunks = [];
+let recordingStartTime = null;
+let recordingInterval = null;
+
+const recordBtn = document.getElementById('recordBtn');
+const stopBtn = document.getElementById('stopBtn');
+const playback = document.getElementById('playback');
+const submitRecordingBtn = document.getElementById('submitRecordingBtn');
+const recordingTimeElem = document.getElementById('recordingTime');
+
+if (recordBtn) {
+    recordBtn.addEventListener('click', async () => {
+        recordedChunks = [];
+        let stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.start();
+
+        recordBtn.disabled = true;
+        stopBtn.disabled = false;
+
+        recordingStartTime = Date.now();
+        recordingInterval = setInterval(() => {
+            let elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+            recordingTimeElem.textContent = elapsed;
+        }, 1000);
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                recordedChunks.push(e.data);
+            }
+        };
+    });
+}
+
+if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+        mediaRecorder.stop();
+
+        stopBtn.disabled = true;
+        recordBtn.disabled = false;
+
+        clearInterval(recordingInterval);
+
+        mediaRecorder.onstop = (e) => {
+            let blob = new Blob(recordedChunks, { type: 'audio/webm' });
+            let url = URL.createObjectURL(blob);
+            playback.src = url;
+            playback.style.display = 'block';
+            submitRecordingBtn.style.display = 'inline-block';
+
+            submitRecordingBtn.onclick = async () => {
+                const formData = new FormData();
+                formData.append("audio_file", blob, "recording.webm");
+
+                let response = await fetch("/upload", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (response.ok) {
+                    let text = await response.text();
+                    // Replace the entire document with the response (which will show "Transcription in Progress")
+                    document.open();
+                    document.write(text);
+                    document.close();
+                } else {
+                    alert("Error submitting recording.");
+                }
+            };
+        };
+    });
+}
+</script>
+
+{% endblock %}
+

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="form-section">
+    <h2>Settings</h2>
+    <form method="POST">
+        <label>Base Directory:</label><br>
+        <input type="text" name="base_dir" value="{{ config.get('base_dir', '') }}" required><br><br>
+
+        <label>Whisper Binary:</label><br>
+        <input type="text" name="whisper_binary" value="{{ config.get('whisper_binary', '') }}" required><br><br>
+
+        <label>Whisper Model:</label><br>
+        <input type="text" name="whisper_model" value="{{ config.get('whisper_model', '') }}" required><br><br>
+
+        <label>FFmpeg Binary:</label><br>
+        <input type="text" name="ffmpeg_binary" value="{{ config.get('ffmpeg_binary', '') }}" required><br><br>
+
+        <button class="button" type="submit">Save</button>
+    </form>
+</div>
+{% endblock %}
+
