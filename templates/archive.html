@@ -9,23 +9,28 @@
         </p>
         <div class="task-list">
             {% if tasks %}
-                {% for task in tasks %}
+                {% for task, data in tasks.items() %}
                 <div class="task">
-                    <h2>{{ task }}</h2>
-                    <div class="download-links">
-                        {% if 'output.txt' in tasks[task] %}
-                        <a href="#" onclick="showFile('{{task}}','output.txt')">TXT</a>
+                    <!-- Show snippet as the "title" instead of the UUID -->
+                    <div class="text-prexiew">{{ data.snippet }}</div>
+
+                    <div class="download-links" style="display: flex; gap: 10px; align-items: center;">
+                        <!-- Only show a link if the file exists in data['files'] -->
+                        {% if 'output.txt' in data['files'] %}
+                        <a href="#" onclick="showFile('{{ task }}','output.txt')">TXT</a>
                         {% endif %}
-                        {% if 'output.srt' in tasks[task] %}
-                        <a href="#" onclick="showFile('{{task}}','output.srt')">SRT</a>
+                        {% if 'output.srt' in data['files'] %}
+                        <a href="#" onclick="showFile('{{ task }}','output.srt')">SRT</a>
                         {% endif %}
-                        {% if 'stdout.log' in tasks[task] %}
-                        <a href="#" onclick="showFile('{{task}}','stdout.log')">Stdout</a>
+                        {% if 'stdout.log' in data['files'] %}
+                        <a href="#" onclick="showFile('{{ task }}','stdout.log')">Stdout</a>
                         {% endif %}
+
+                        <!-- Move the Delete button onto the same line -->
+                        <form method="POST" action="{{ url_for('delete_task', task_id=task) }}" style="display:inline; margin:0;">
+                            <button class="button" type="submit">Delete</button>
+                        </form>
                     </div>
-                    <form method="POST" action="{{ url_for('delete_task', task_id=task) }}" style="margin-top:10px;">
-                        <button class="button" type="submit">Delete</button>
-                    </form>
                 </div>
                 {% endfor %}
             {% else %}
@@ -36,6 +41,7 @@
 
     <div class="right-panel-container">
         <div class="preview-header">
+            <!-- We'll put the "Viewing: ..." text and the "Download" button here -->
             <span id="file-name-display">Select a file to view.</span>
             <button id="download-button" class="button" style="display:none;">Download</button>
         </div>
@@ -57,7 +63,9 @@ async function showFile(task_id, filename) {
     currentTaskId = task_id;
     currentFileName = filename;
 
-    fileNameDisplay.textContent = `Viewing: ${filename}`;
+    // Show the UUID (task_id) in the "Viewing: ..." text
+    fileNameDisplay.textContent = `Viewing ${task_id}: ${filename}`;
+
     downloadButton.style.display = 'inline-block';
     downloadButton.onclick = () => {
         window.location.href = `/download/${task_id}/${filename}`;
@@ -68,7 +76,6 @@ async function showFile(task_id, filename) {
         let response = await fetch(`/view/${task_id}/${filename}`);
         if (response.ok) {
             let text = await response.text();
-            // Wrap in a <pre> for preserving whitespace and newlines
             contentDiv.innerHTML = "<pre>" + escapeHTML(text) + "</pre>";
         } else {
             contentDiv.textContent = "Failed to load file.";
@@ -93,4 +100,3 @@ function escapeHTML(str) {
 }
 </script>
 {% endblock %}
-

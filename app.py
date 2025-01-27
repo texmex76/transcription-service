@@ -202,7 +202,6 @@ def view_file(task_id, filename):
 
 @app.route("/archive")
 def archive():
-    """Render the archive of transcriptions."""
     if not BASE_DIR or not os.path.isdir(BASE_DIR):
         return (
             "No transcriptions directory found. Please configure base_dir in settings.",
@@ -214,7 +213,28 @@ def archive():
         task_dir = os.path.join(BASE_DIR, d)
         if os.path.isdir(task_dir):
             files = os.listdir(task_dir)
-            tasks[d] = files
+
+            # Default snippet if we don't have an output.txt
+            snippet = "No transcription available."
+
+            # If there's an output.txt, read the first 200 chars
+            if "output.txt" in files:
+                output_txt_path = os.path.join(task_dir, "output.txt")
+                if os.path.isfile(output_txt_path):
+                    with open(
+                        output_txt_path,
+                        "r",
+                        encoding="utf-8",
+                        errors="replace",
+                    ) as f:
+                        text = f.read().strip()
+                    if len(text) > 200:
+                        snippet = text[:200] + "..."
+                    else:
+                        snippet = text
+
+            # Store both the list of files and the snippet
+            tasks[d] = {"files": files, "snippet": snippet}
 
     return render_template(
         "archive.html",
