@@ -23,40 +23,35 @@
     <button class="button" id="submitRecordingBtn" style="display:none;">Submit Recording for Transcription</button>
 </div>
 
-{% if task_id %}
-    <h2>Transcription in Progress</h2>
-    <div id="stdoutput" style="background: #f0f0f0; border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">
-        Waiting for output...
-    </div>
-    <script>
-    // SSE for progress
-    var eventSource = new EventSource("/progress/{{task_id}}");
-    var stdoutput = document.getElementById("stdoutput");
+<!-- Shared stdout area (shown/updated for each transcription) -->
+<h2 id="progress-title" style="display: none;">Transcription in Progress</h2>
+<div id="stdoutput"
+     style="display: none; background: #f0f0f0; border: 1px solid #ccc; padding: 10px; height: 300px; 
+            overflow-y: auto; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">
+</div>
 
-    eventSource.onmessage = function(e) {
-        // When done, redirect
-        if (e.data.startsWith("DONE")) {
-            eventSource.close();
-            window.location.href = "/result/{{task_id}}";
-        } else {
-            stdoutput.textContent += "\n" + e.data;
-            stdoutput.scrollTop = stdoutput.scrollHeight;
-        }
-    };
-    </script>
-{% endif %}
-
-{% if result_task_id %}
+<!-- A hidden final result section (re-used after each transcription) -->
+<div id="result-section" style="display: none; margin-top: 20px;">
     <h2>Transcription Completed</h2>
-    <div class="download-links">
-        <a href="{{ url_for('download_file', task_id=result_task_id, filename='output.txt') }}" target="_blank">Download TXT</a>
-        <a href="{{ url_for('download_file', task_id=result_task_id, filename='output.srt') }}" target="_blank">Download SRT</a>
-        <a href="{{ url_for('download_file', task_id=result_task_id, filename='stdout.log') }}" target="_blank">View Stdout</a>
+    <div class="download-links" id="download-links">
+        <!-- We dynamically populate these links for each new task_id -->
     </div>
+    <br>
+    <button class="button" onclick="copyTranscription()">Copy Transcription to Clipboard</button>
+</div>
+
+<!--
+ If the server sets "task_id" in the context (like from /upload),
+ it will place a hidden <input> so we can parse it from JavaScript.
+-->
+{% if task_id %}
+<input type="hidden" id="hiddenTaskId" value="{{task_id}}">
 {% endif %}
 
 <script>
-// Microphone recording logic
+/* ---------------------------------------------------------------------
+  1) Microphone Recording Logic
+ --------------------------------------------------------------------- */
 let mediaRecorder;
 let recordedChunks = [];
 let recordingStartTime = null;
@@ -94,12 +89,14 @@ if (recordBtn) {
 
 if (stopBtn) {
     stopBtn.addEventListener('click', () => {
-        mediaRecorder.stop();
-
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+        }
         stopBtn.disabled = true;
         recordBtn.disabled = false;
 
         clearInterval(recordingInterval);
+        recordingInterval = null;
 
         mediaRecorder.onstop = (e) => {
             let blob = new Blob(recordedChunks, { type: 'audio/webm' });
@@ -109,27 +106,135 @@ if (stopBtn) {
             submitRecordingBtn.style.display = 'inline-block';
 
             submitRecordingBtn.onclick = async () => {
-                const formData = new FormData();
-                formData.append("audio_file", blob, "recording.webm");
-
-                let response = await fetch("/upload", {
-                    method: "POST",
-                    body: formData
-                });
-
-                if (response.ok) {
-                    let text = await response.text();
-                    // Replace the entire document with the response (which will show "Transcription in Progress")
-                    document.open();
-                    document.write(text);
-                    document.close();
-                } else {
-                    alert("Error submitting recording.");
-                }
+                await uploadAndTranscribe(blob);
             };
         };
     });
 }
+
+/* ---------------------------------------------------------------------
+  2) Upload the recorded blob & parse the returned HTML for new task_id
+ --------------------------------------------------------------------- */
+async function uploadAndTranscribe(audioBlob) {
+    const formData = new FormData();
+    formData.append("audio_file", audioBlob, "recording.webm");
+
+    let response = await fetch("/upload", {
+        method: "POST",
+        body: formData
+    });
+
+    if (!response.ok) {
+        alert("Error submitting recording.");
+        return;
+    }
+
+    // Get the entire HTML returned by /upload, which is basically "index.html" with a new task_id in a hidden <input>
+    let html = await response.text();
+
+    // Parse the HTML to find <input id="hiddenTaskId" value="...">
+    let parser = new DOMParser();
+    let doc = parser.parseFromString(html, "text/html");
+    let hiddenTaskInput = doc.getElementById("hiddenTaskId");
+
+    if (!hiddenTaskInput || !hiddenTaskInput.value) {
+        alert("Error: Could not find new task_id in server response.");
+        return;
+    }
+
+    let newTaskId = hiddenTaskInput.value;
+
+    // Display the progress area
+    let stdoutput = document.getElementById("stdoutput");
+    stdoutput.innerHTML = "Waiting for output...";
+    stdoutput.style.display = "block";
+
+    document.getElementById("progress-title").style.display = "block";
+
+    // Hide the old result section (if visible)
+    document.getElementById("result-section").style.display = "none";
+
+    // Start SSE for this new transcription
+    startSSE(newTaskId);
+}
+
+/* ---------------------------------------------------------------------
+  3) SSE: Show progress in #stdoutput, then show final links & re-enable
+ --------------------------------------------------------------------- */
+let currentEventSource = null;
+
+function startSSE(taskId) {
+    // Close any old event source
+    if (currentEventSource) {
+        currentEventSource.close();
+    }
+
+    currentEventSource = new EventSource(`/progress/${taskId}`);
+    const stdoutput = document.getElementById("stdoutput");
+    const resultSection = document.getElementById("result-section");
+    const downloadLinks = document.getElementById("download-links");
+
+    currentEventSource.onmessage = function(e) {
+        if (e.data.startsWith("DONE")) {
+            currentEventSource.close();
+            currentEventSource = null;
+
+            // Show final links (download the transcription files)
+            let txtUrl = `/download/${taskId}/output.txt`;
+            let srtUrl = `/download/${taskId}/output.srt`;
+            let logUrl = `/download/${taskId}/stdout.log`;
+
+            downloadLinks.innerHTML = `
+                <a href="${txtUrl}" target="_blank">Download TXT</a>
+                <a href="${srtUrl}" target="_blank">Download SRT</a>
+                <a href="${logUrl}" target="_blank">View Stdout</a>
+            `;
+
+            resultSection.style.display = "block";
+
+            // Re-enable the record button for another transcription
+            recordBtn.disabled = false;
+            return;
+        } else {
+            // Append the new line to the stdout window
+            stdoutput.textContent += "\n" + e.data;
+            stdoutput.scrollTop = stdoutput.scrollHeight;
+        }
+    };
+}
+
+/* ---------------------------------------------------------------------
+  4) Copy the "output.txt" transcription to clipboard
+ --------------------------------------------------------------------- */
+function copyTranscription() {
+    // We'll find the link to output.txt
+    let firstLink = document.querySelector("#download-links a");
+    if (!firstLink) return;
+
+    // The link is "/download/<taskId>/output.txt"
+    // We'll convert that to "/view/<taskId>/output.txt" to get raw text
+    let url = firstLink.href.replace("/download/", "/view/");
+
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("Failed to fetch transcription text.");
+            }
+            return response.text();
+        })
+        .then(text => {
+            navigator.clipboard.writeText(text).catch(() => {
+                alert("Failed to copy. Please try again.");
+            });
+        })
+        .catch(err => {
+            alert(err.message);
+        });
+}
+
+// Optional: If you also want the file-upload form (#uploadForm) 
+// to NOT reload the page, you could do similar logic as `uploadAndTranscribe()`.
+// For now, we leave it as a normal form that reloads.
 </script>
 
 {% endblock %}
