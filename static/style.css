@@ -93,6 +93,7 @@ footer {
     flex-direction: column;
     padding: 20px;
     box-sizing: border-box;
+    min-width: 0;
 }
 
 .task-list {
@@ -130,10 +131,15 @@ footer {
     border: 1px solid #ddd;
     border-radius: 5px;
     padding: 10px;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    overflow: auto;
+    /* This keeps lines on a single line, making horizontal scroll necessary */
+    white-space: pre;
+    /* Force horizontal scrolling if text is too long */
+    overflow-x: auto;
+    overflow-y: auto;
+    /* Let this area fill available space, but also allow shrinking */
     flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
     font-family: monospace;
 }
 
