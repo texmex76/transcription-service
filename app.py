@@ -52,9 +52,7 @@ load_config()
 def index():
     """Render the main transcription page."""
     return render_template(
-        "index.html", 
-        title="Transcribe",
-        year=datetime.datetime.now().year
+        "index.html", title="Transcribe", year=datetime.datetime.now().year
     )
 
 
@@ -69,7 +67,9 @@ def upload():
         return "No file selected", 400
 
     # Create a unique task ID and directory for the transcription job
-    task_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_") + str(uuid.uuid4())
+    task_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_") + str(
+        uuid.uuid4()
+    )
     task_dir = os.path.join(BASE_DIR, task_id)
     os.makedirs(task_dir, exist_ok=True)
 
@@ -83,7 +83,7 @@ def upload():
         "index.html",
         title="Transcribe",
         year=datetime.datetime.now().year,
-        task_id=task_id
+        task_id=task_id,
     )
 
 
@@ -138,6 +138,14 @@ def progress(task_id):
 
         if os.path.exists(generated_txt):
             os.rename(generated_txt, final_txt)
+
+            # Remove leading spaces from each line in the .txt file
+            with open(final_txt, "r") as txt_file:
+                lines = txt_file.readlines()
+
+            with open(final_txt, "w") as txt_file:
+                txt_file.writelines(line.lstrip() for line in lines)
+
         if os.path.exists(generated_srt):
             os.rename(generated_srt, final_srt)
 
@@ -166,7 +174,7 @@ def result(task_id):
         "index.html",
         title="Transcribe",
         year=datetime.datetime.now().year,
-        result_task_id=task_id
+        result_task_id=task_id,
     )
 
 
@@ -196,7 +204,10 @@ def view_file(task_id, filename):
 def archive():
     """Render the archive of transcriptions."""
     if not BASE_DIR or not os.path.isdir(BASE_DIR):
-        return "No transcriptions directory found. Please configure base_dir in settings.", 500
+        return (
+            "No transcriptions directory found. Please configure base_dir in settings.",
+            500,
+        )
 
     tasks = {}
     for d in os.listdir(BASE_DIR):
@@ -209,7 +220,7 @@ def archive():
         "archive.html",
         title="Archive",
         year=datetime.datetime.now().year,
-        tasks=tasks
+        tasks=tasks,
     )
 
 
@@ -244,12 +255,9 @@ def settings():
             config_data = toml.load(f)
 
     return render_template(
-        "settings.html",
-        title="Settings",
-        config=config_data
+        "settings.html", title="Settings", config=config_data
     )
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)
-
