@@ -3,6 +3,11 @@
 
 <div class="form-section">
     <h2>Upload Audio</h2>
+    <!-- 
+         We keep the action and enctype so that if JavaScript is disabled 
+         you can still fall back to a normal form-post. 
+         JS will intercept it before it causes a real page reload.
+    -->
     <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="uploadForm">
         <p>Select an audio file to transcribe (WAV recommended, otherwise it will be converted):</p>
         <input type="file" name="audio_file" accept="audio/*" required />
@@ -23,14 +28,14 @@
     <button class="button" id="submitRecordingBtn" style="display:none;">Submit Recording for Transcription</button>
 </div>
 
-<!-- Shared stdout area (shown/updated for each transcription) -->
+<!-- A shared progress title & stdout area (SSE output for BOTH upload & record) -->
 <h2 id="progress-title" style="display: none;">Transcription in Progress</h2>
 <div id="stdoutput"
      style="display: none; background: #f0f0f0; border: 1px solid #ccc; padding: 10px; height: 300px; 
             overflow-y: auto; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">
 </div>
 
-<!-- A hidden final result section (re-used after each transcription) -->
+<!-- A shared final result section (used by BOTH upload & record) -->
 <div id="result-section" style="display: none; margin-top: 20px;">
     <h2>Transcription Completed</h2>
     <div class="download-links" id="download-links">
@@ -40,18 +45,16 @@
     <button class="button" onclick="copyTranscription()">Copy Transcription to Clipboard</button>
 </div>
 
-<!--
- If the server sets "task_id" in the context (like from /upload),
- it will place a hidden <input> so we can parse it from JavaScript.
--->
+<!-- If the server sets "task_id" (like from /upload), we place a hidden input 
+     so we can parse it from JavaScript and start SSE automatically. -->
 {% if task_id %}
 <input type="hidden" id="hiddenTaskId" value="{{task_id}}">
 {% endif %}
 
 <script>
 /* ---------------------------------------------------------------------
-  1) Microphone Recording Logic
- --------------------------------------------------------------------- */
+   1) Microphone Recording Logic
+   --------------------------------------------------------------------- */
 let mediaRecorder;
 let recordedChunks = [];
 let recordingStartTime = null;
@@ -113,8 +116,8 @@ if (stopBtn) {
 }
 
 /* ---------------------------------------------------------------------
-  2) Upload the recorded blob & parse the returned HTML for new task_id
- --------------------------------------------------------------------- */
+   2) Upload the recorded blob & parse the returned HTML for new task_id
+   --------------------------------------------------------------------- */
 async function uploadAndTranscribe(audioBlob) {
     const formData = new FormData();
     formData.append("audio_file", audioBlob, "recording.webm");
@@ -129,39 +132,76 @@ async function uploadAndTranscribe(audioBlob) {
         return;
     }
 
-    // Get the entire HTML returned by /upload, which is basically "index.html" with a new task_id in a hidden <input>
+    // Get the entire HTML returned by /upload (which is basically "index.html" + hiddenTaskId).
     let html = await response.text();
-
-    // Parse the HTML to find <input id="hiddenTaskId" value="...">
-    let parser = new DOMParser();
-    let doc = parser.parseFromString(html, "text/html");
-    let hiddenTaskInput = doc.getElementById("hiddenTaskId");
-
-    if (!hiddenTaskInput || !hiddenTaskInput.value) {
+    let newTaskId = parseTaskIdFromHTML(html);
+    if (!newTaskId) {
         alert("Error: Could not find new task_id in server response.");
         return;
     }
 
-    let newTaskId = hiddenTaskInput.value;
+    startTranscriptionUI(newTaskId);
+}
 
-    // Display the progress area
+/* ---------------------------------------------------------------------
+   3) Intercept the normal file-upload form to do the same SSE approach
+   --------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', () => {
+    const uploadForm = document.getElementById('uploadForm');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault(); // prevent normal page reload
+
+            const formData = new FormData(uploadForm);
+            let response = await fetch(uploadForm.action, {
+                method: "POST",
+                body: formData
+            });
+
+            if (!response.ok) {
+                alert("Error uploading file.");
+                return;
+            }
+
+            // same approach: parse HTML, extract hiddenTaskId
+            let html = await response.text();
+            let newTaskId = parseTaskIdFromHTML(html);
+            if (!newTaskId) {
+                alert("Error: Could not find new task_id in server response.");
+                return;
+            }
+
+            startTranscriptionUI(newTaskId);
+        });
+    }
+
+    // If the server reloaded us with a hiddenTaskId, automatically start SSE
+    const hiddenTaskInput = document.getElementById('hiddenTaskId');
+    if (hiddenTaskInput && hiddenTaskInput.value) {
+        startTranscriptionUI(hiddenTaskInput.value);
+    }
+});
+
+/* ---------------------------------------------------------------------
+   4) SSE: Show progress in #stdoutput, then show final links & re-enable
+   --------------------------------------------------------------------- */
+let currentEventSource = null;
+
+function startTranscriptionUI(taskId) {
+    // Show the progress area
     let stdoutput = document.getElementById("stdoutput");
     stdoutput.innerHTML = "Waiting for output...";
     stdoutput.style.display = "block";
 
     document.getElementById("progress-title").style.display = "block";
-
-    // Hide the old result section (if visible)
     document.getElementById("result-section").style.display = "none";
 
-    // Start SSE for this new transcription
-    startSSE(newTaskId);
-}
+    // Re-enable the record button for more recordings (if needed)
+    recordBtn && (recordBtn.disabled = false);
 
-/* ---------------------------------------------------------------------
-  3) SSE: Show progress in #stdoutput, then show final links & re-enable
- --------------------------------------------------------------------- */
-let currentEventSource = null;
+    // Actually start SSE
+    startSSE(taskId);
+}
 
 function startSSE(taskId) {
     // Close any old event source
@@ -191,9 +231,6 @@ function startSSE(taskId) {
             `;
 
             resultSection.style.display = "block";
-
-            // Re-enable the record button for another transcription
-            recordBtn.disabled = false;
             return;
         } else {
             // Append the new line to the stdout window
@@ -204,8 +241,18 @@ function startSSE(taskId) {
 }
 
 /* ---------------------------------------------------------------------
-  4) Copy the "output.txt" transcription to clipboard
- --------------------------------------------------------------------- */
+   5) Utility: parse the hiddenTaskId from the server’s returned HTML
+   --------------------------------------------------------------------- */
+function parseTaskIdFromHTML(html) {
+    let parser = new DOMParser();
+    let doc = parser.parseFromString(html, "text/html");
+    let hiddenTaskInput = doc.getElementById("hiddenTaskId");
+    return hiddenTaskInput ? hiddenTaskInput.value : null;
+}
+
+/* ---------------------------------------------------------------------
+   6) Copy the "output.txt" transcription to clipboard
+   --------------------------------------------------------------------- */
 function copyTranscription() {
     // We'll find the link to output.txt
     let firstLink = document.querySelector("#download-links a");
@@ -231,10 +278,6 @@ function copyTranscription() {
             alert(err.message);
         });
 }
-
-// Optional: If you also want the file-upload form (#uploadForm) 
-// to NOT reload the page, you could do similar logic as `uploadAndTranscribe()`.
-// For now, we leave it as a normal form that reloads.
 </script>
 
 {% endblock %}
